@@ -29,6 +29,9 @@ tmp/
 .DS_Store
 Thumbs.db
 
+# Agent workspace state (local memory / notes - not part of the deliverable)
+.workbuddy-ai/
+
 # ---- vendored component (open-reverselab) ----
 # The submodule is tracked as a gitlink; its internal build output is not.
 open-reverselab/tools/common/venvs/*
