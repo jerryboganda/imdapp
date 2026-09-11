@@ -28,6 +28,19 @@ esac
 
 command -v gh >/dev/null 2>&1 || { echo "gh CLI not found. Install: https://cli.github.com/" >&2; exit 127; }
 
+# Self-heal a common gh state: the credential exists in the OS keychain
+# (`gh auth token` works) but hosts.yml has no oauth_token entry, so gh
+# refuses to authenticate unless GH_TOKEN is exported.
+if [[ -z "${GH_TOKEN:-}" ]] && ! gh auth status >/dev/null 2>&1; then
+  if TOKEN="$(gh auth token 2>/dev/null)" && [[ -n "$TOKEN" ]]; then
+    export GH_TOKEN="$TOKEN"
+    echo "    note: exported GH_TOKEN from the local gh credential store"
+  else
+    echo "Not authenticated. Run: gh auth login" >&2
+    exit 1
+  fi
+fi
+
 REF="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
 echo "==> Dispatching compute to GitHub Actions"
 echo "    repo   : $REPO"

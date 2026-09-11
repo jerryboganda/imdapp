@@ -28,6 +28,14 @@ api() { API_OUT="$(gh api "$@" 2>/dev/null)"; API_OK=$?; }
 echo "==> Verifying integrations for $REPO"
 echo
 
+# Self-heal a common gh state: the credential exists in the OS keychain
+# (`gh auth token` works) but hosts.yml has no oauth_token entry, so gh
+# refuses to authenticate unless GH_TOKEN is exported.
+if [[ -z "${GH_TOKEN:-}" ]] && ! gh auth status >/dev/null 2>&1; then
+  TOKEN="$(gh auth token 2>/dev/null || true)"
+  [[ -n "$TOKEN" ]] && export GH_TOKEN="$TOKEN"
+fi
+
 # --- 1. auth -----------------------------------------------------------------
 echo "[1] Authentication"
 if ! gh auth token >/dev/null 2>&1; then

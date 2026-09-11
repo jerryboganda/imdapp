@@ -33,6 +33,22 @@ if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
   throw "gh CLI not found. Install from https://cli.github.com/"
 }
 
+# Self-heal a common gh state: the credential exists in the OS keychain
+# (`gh auth token` works) but hosts.yml has no oauth_token entry, so gh
+# refuses to authenticate unless GH_TOKEN is exported.
+if (-not $env:GH_TOKEN) {
+  gh auth status *> $null
+  if ($LASTEXITCODE -ne 0) {
+    $tok = (gh auth token 2>$null)
+    if ($tok) {
+      $env:GH_TOKEN = $tok
+      Write-Host '    note: exported GH_TOKEN from the local gh credential store'
+    } else {
+      throw "Not authenticated. Run: gh auth login"
+    }
+  }
+}
+
 $ref = (git rev-parse --abbrev-ref HEAD 2>$null)
 if (-not $ref) { $ref = 'main' }
 
