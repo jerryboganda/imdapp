@@ -49,6 +49,11 @@ jobs:
     environment:
       name: production
       url: https://reverselab.int0.cc
+    # NOTE: the `secrets` context is NOT available inside step-level `if:`
+    # expressions. Resolve it here (job-level env CAN read secrets) and gate
+    # the steps on the derived flag instead.
+    env:
+      CF_DEPLOY_ENABLED: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     steps:
       - name: Checkout (with vendored component)
         uses: actions/checkout@v4
@@ -67,6 +72,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Apply downstream component patches
+        run: bash scripts/apply-component-patches.sh
+
       - name: Install dependencies
         working-directory: ${{ env.LAB_DIR }}/site
         run: npm ci
@@ -76,7 +84,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Cloudflare Pages
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        if: env.CF_DEPLOY_ENABLED == 'true'
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -85,7 +93,7 @@ jobs:
           workingDirectory: ${{ env.LAB_DIR }}/site
 
       - name: Deploy skipped notice
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN == '' }}
+        if: env.CF_DEPLOY_ENABLED != 'true'
         run: |
           echo "::warning::CLOUDFLARE_API_TOKEN is not configured - build succeeded, deploy skipped."
           echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to the 'production' environment to enable deploy." >> "$GITHUB_STEP_SUMMARY"

@@ -25,6 +25,20 @@ if (-not $SkipSubmodules) {
   } finally { Pop-Location }
 } else { Write-Host "`n[1/5] Skipping submodules." }
 
+# --- 1b. Downstream component patches ---------------------------------------
+if (-not $SkipSubmodules) {
+  Write-Host "`n[1b/5] Applying downstream component patches..."
+  $patcher = Join-Path $RepoRoot 'scripts\apply-component-patches.sh'
+  if (Test-Path $patcher) {
+    if (Get-Command bash -ErrorAction SilentlyContinue) {
+      & bash $patcher
+      if ($LASTEXITCODE -ne 0) { Write-Warning 'Some component patches did not apply cleanly.' }
+    } else {
+      Write-Warning 'bash not found; apply patches manually before building the site.'
+    }
+  }
+}
+
 # --- 2. uv -------------------------------------------------------------------
 if (-not $SkipUv) {
   Write-Host "`n[2/5] Ensuring uv is installed..."

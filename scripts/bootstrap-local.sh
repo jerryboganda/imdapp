@@ -14,6 +14,10 @@ echo "[1/4] Syncing git submodules..."
 ( cd "$ROOT" && git submodule update --init --recursive )
 
 echo
+echo "[1b/4] Applying downstream component patches..."
+bash "$ROOT/scripts/apply-component-patches.sh" || echo "    WARNING: some patches did not apply (see above)"
+
+echo
 echo "[2/4] Ensuring uv is installed..."
 if command -v uv >/dev/null 2>&1; then
   echo "    uv already present: $(uv --version)"

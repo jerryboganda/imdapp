@@ -1,0 +1,13 @@
+diff --git a/site/en/index.md b/site/en/index.md
+index 42bf5ad..5d94cef 100644
+--- a/site/en/index.md
++++ b/site/en/index.md
+@@ -11,7 +11,7 @@ head:
+       content: Open-ReverseLab — AI Reverse Engineering Agent & MCP Lab
+   - - meta
+     - property: og:description
+-      content: Open-source AI reverse-engineering agent & MCP lab: 183 executable knowledge-base articles + 100+ MCP automation tools covering CTF, APK, PE, crypto and game-cheating reversing.
++      content: "Open-source AI reverse-engineering agent & MCP lab: 183 executable knowledge-base articles + 100+ MCP automation tools covering CTF, APK, PE, crypto and game-cheating reversing."
+ ---
+ 
+ <HomePage />

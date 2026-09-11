@@ -63,6 +63,25 @@ entry point — and `scripts/compute.*` wraps it so nobody types raw `gh` flags.
 
 Workflows must therefore always checkout with `submodules: recursive`.
 
+## Downstream patches
+
+Because the submodule must stay at a SHA that is fetchable from upstream, fixes
+for upstream defects cannot be committed into it. They are carried as tracked
+patch files in `patches/` and applied idempotently by
+`scripts/apply-component-patches.sh`:
+
+- locally, from `scripts/bootstrap-local.*`
+- in CI, as a step before `npm ci` in the site build
+- in CD, before the production build
+
+| Patch | Fixes |
+| --- | --- |
+| `0001-fix-site-en-index-frontmatter.patch` | unquoted colon in `site/en/index.md` YAML frontmatter (`og:description`), which broke the VitePress build |
+
+The applier is safe to re-run: it reports `APPLIED`, `ALREADY-APPLIED`, or
+`STALE` (upstream changed — the patch needs refreshing).
+
+
 ## Security posture
 
 - Default `permissions: contents: read`; jobs opt into more.
