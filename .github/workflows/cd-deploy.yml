@@ -1,0 +1,99 @@
+name: CD - Deploy
+
+# -----------------------------------------------------------------------------
+# Continuous deployment. Runs only after CI succeeds on main, or on demand.
+# Deploy is compute too -> it belongs on Actions, not on a laptop.
+# -----------------------------------------------------------------------------
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Deploy target"
+        required: true
+        default: "site"
+        type: choice
+        options:
+          - site
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONIOENCODING: utf-8
+  LAB_DIR: open-reverselab
+
+concurrency:
+  group: cd-deploy
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Docs site -> Cloudflare Pages
+  # Requires environment `production` with secrets:
+  #   CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+  # ---------------------------------------------------------------------------
+  deploy-site:
+    name: Deploy docs site
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Only deploy when CI passed (for workflow_run) or when manually dispatched.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment:
+      name: production
+      url: https://reverselab.int0.cc
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.LAB_DIR }}/site/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: ${{ env.LAB_DIR }}/site
+        run: npm ci
+
+      - name: Build site
+        working-directory: ${{ env.LAB_DIR }}/site
+        run: npm run build
+
+      - name: Deploy to Cloudflare Pages
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy .vitepress/dist --project-name=reverselab --branch=main
+          workingDirectory: ${{ env.LAB_DIR }}/site
+
+      - name: Deploy skipped notice
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN == '' }}
+        run: |
+          echo "::warning::CLOUDFLARE_API_TOKEN is not configured - build succeeded, deploy skipped."
+          echo "Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID to the 'production' environment to enable deploy." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload built site
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist-production
+          path: ${{ env.LAB_DIR }}/site/.vitepress/dist
+          if-no-files-found: error
+          retention-days: 30

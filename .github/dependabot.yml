@@ -1,0 +1,29 @@
+version: 2
+updates:
+  # GitHub Actions used by the control plane
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "ci"
+
+  # Site tooling inside the vendored component
+  - package-ecosystem: "npm"
+    directory: "/open-reverselab/site"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+
+  # MCP server python deps inside the vendored component
+  - package-ecosystem: "pip"
+    directory: "/open-reverselab/tools/skills/mcp/ReverseLabToolsMCP"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"

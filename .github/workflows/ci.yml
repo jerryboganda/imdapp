@@ -1,0 +1,246 @@
+name: CI
+
+# -----------------------------------------------------------------------------
+# The single source of truth for how this project is verified.
+# NOTHING here is meant to be reproduced locally - see .github/COMPUTE_POLICY.md
+# -----------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; jobs opt in to more when needed.
+permissions:
+  contents: read
+
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+  LAB_DIR: open-reverselab
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Cross-platform static checks, docs audits and unit tests
+  # ---------------------------------------------------------------------------
+  lint-and-test:
+    name: Lint, audit & unit tests (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      - name: Public release boundary check
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/public_release_check.py
+
+      - name: Core health check
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/lab_healthcheck.py
+
+      - name: Bootstrap core wrappers
+        working-directory: ${{ env.LAB_DIR }}
+        run: bash scripts/misc/bootstrap.sh
+
+      - name: Misc toolcheck smoke
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/ai_toolcheck.py --board misc
+
+      - name: KB documentation audit
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/kb_doc_audit.py
+
+      - name: KB frontmatter check
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/add_frontmatter.py --verify
+
+      - name: SEO audit
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/seo_audit.py
+
+      - name: Python unit tests
+        working-directory: ${{ env.LAB_DIR }}
+        run: python -m pytest -q
+
+  # ---------------------------------------------------------------------------
+  # 2. Windows-specific checks (PowerShell surface, CVE pipeline smoke)
+  # ---------------------------------------------------------------------------
+  windows-smoke:
+    name: Windows smoke (windows)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Public data and syntax checks
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/public_release_check.py
+
+      - name: Core health check
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/lab_healthcheck.py
+
+      - name: Bootstrap core wrappers
+        shell: pwsh
+        working-directory: ${{ env.LAB_DIR }}
+        run: ./scripts/misc/bootstrap.ps1 -Force
+
+      - name: PowerShell syntax check
+        shell: pwsh
+        working-directory: ${{ env.LAB_DIR }}
+        run: |
+          $errors = @()
+          Get-ChildItem scripts -Recurse -Filter *.ps1 | ForEach-Object {
+            $tokens = $null; $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            $errors += $parseErrors
+          }
+          if ($errors.Count) { $errors | Format-List; exit 1 }
+
+      - name: Offline CVE pipeline smoke
+        shell: pwsh
+        working-directory: ${{ env.LAB_DIR }}
+        run: ./scripts/ctf-website/smoke_cve_pipeline.ps1
+
+  # ---------------------------------------------------------------------------
+  # 3. MCP server: dependency resolution + CLI smoke
+  # ---------------------------------------------------------------------------
+  mcp-smoke:
+    name: MCP server smoke (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Verify MCP manifest is present
+        run: |
+          test -f "${LAB_DIR}/.mcp.json"
+          python - <<'PY'
+          import json, os, sys
+          p = os.path.join(os.environ["LAB_DIR"], ".mcp.json")
+          cfg = json.load(open(p, encoding="utf-8"))
+          servers = cfg.get("mcpServers", {})
+          assert "reverse_lab_tools" in servers, "reverse_lab_tools missing from .mcp.json"
+          print("mcpServers.reverse_lab_tools OK")
+          PY
+
+      - name: Resolve MCP dependencies
+        working-directory: ${{ env.LAB_DIR }}
+        run: uv sync --project tools/skills/mcp/ReverseLabToolsMCP
+
+      - name: MCP CLI smoke
+        working-directory: ${{ env.LAB_DIR }}
+        run: uv run --project tools/skills/mcp/ReverseLabToolsMCP python tools/skills/mcp/ReverseLabToolsMCP/reverse_lab_tools_mcp.py --help
+
+      - name: MCP tool smoke check
+        working-directory: ${{ env.LAB_DIR }}
+        run: uv run --project tools/skills/mcp/ReverseLabToolsMCP python scripts/misc/mcp_smoke_check.py --write-report
+
+      - name: Upload MCP smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-smoke-report
+          path: ${{ env.LAB_DIR }}/reports/misc/mcp-smoke-report.json
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # 4. Documentation site build
+  # ---------------------------------------------------------------------------
+  site-build:
+    name: Docs site build (ubuntu)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ env.LAB_DIR }}/site/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ env.LAB_DIR }}/site
+        run: npm ci
+
+      - name: Build site
+        working-directory: ${{ env.LAB_DIR }}/site
+        run: npm run build
+
+      - name: Upload site bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: site-dist
+          path: ${{ env.LAB_DIR }}/site/.vitepress/dist
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 5. Aggregate gate - single required status check for branch protection
+  # ---------------------------------------------------------------------------
+  gate:
+    name: CI gate
+    runs-on: ubuntu-latest
+    needs: [lint-and-test, windows-smoke, mcp-smoke, site-build]
+    if: always()
+    steps:
+      - name: Verify all upstream jobs succeeded
+        run: |
+          echo "lint-and-test : ${{ needs.lint-and-test.result }}"
+          echo "windows-smoke : ${{ needs.windows-smoke.result }}"
+          echo "mcp-smoke     : ${{ needs.mcp-smoke.result }}"
+          echo "site-build    : ${{ needs.site-build.result }}"
+          if [ "${{ needs.lint-and-test.result }}" != "success" ] \
+             || [ "${{ needs.windows-smoke.result }}" != "success" ] \
+             || [ "${{ needs.mcp-smoke.result }}" != "success" ] \
+             || [ "${{ needs.site-build.result }}" != "success" ]; then
+            echo "::error::One or more CI jobs failed."
+            exit 1
+          fi
+          echo "All CI jobs passed."

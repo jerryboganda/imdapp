@@ -1,0 +1,37 @@
+# ---- imdapp control plane ----
+# Local environment / secrets
+.env
+.env.*
+!.env.example
+config/local.env
+secrets/
+*.pem
+*.key
+
+# Local install artifacts (never commit)
+.venv/
+venv/
+node_modules/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Compute is remote-only: local run artifacts are throwaway
+.artifacts/
+reports/local/
+logs/
+tmp/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---- vendored component (open-reverselab) ----
+# The submodule is tracked as a gitlink; its internal build output is not.
+open-reverselab/tools/common/venvs/*
+!open-reverselab/tools/common/venvs/.gitkeep
+open-reverselab/tmp/
+open-reverselab/logs/

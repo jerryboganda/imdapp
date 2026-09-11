@@ -1,0 +1,158 @@
+name: Compute
+
+# -----------------------------------------------------------------------------
+# The ONLY sanctioned way to run a compute task for this project.
+# Trigger it from the Actions UI, or via ./scripts/compute.sh | compute.ps1
+# See .github/COMPUTE_POLICY.md
+# -----------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Compute task to run"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - healthcheck
+          - mcp-smoke
+          - toolcheck
+          - kb-audit
+          - tests
+          - site-build
+          - release-check
+          - full
+      board:
+        description: "Board for toolcheck (misc | ctf-website | android | windows | general)"
+        required: false
+        default: "misc"
+        type: string
+      runner:
+        description: "Runner image"
+        required: true
+        default: "ubuntu-latest"
+        type: choice
+        options:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+      write_report:
+        description: "Write JSON reports into reports/misc/"
+        required: false
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+env:
+  PYTHONIOENCODING: utf-8
+  PYTHONUTF8: "1"
+  LAB_DIR: open-reverselab
+
+concurrency:
+  group: compute-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compute:
+    name: compute / ${{ inputs.task }} (${{ inputs.runner }})
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Checkout (with vendored component)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Setup Node
+        if: inputs.task == 'site-build' || inputs.task == 'full' || inputs.task == 'release-check'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip pytest
+
+      # ---------------- individual tasks ----------------
+      - name: Task - healthcheck
+        if: inputs.task == 'healthcheck' || inputs.task == 'full'
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/lab_healthcheck.py
+
+      - name: Task - mcp-smoke
+        if: inputs.task == 'mcp-smoke' || inputs.task == 'full'
+        working-directory: ${{ env.LAB_DIR }}
+        run: |
+          uv sync --project tools/skills/mcp/ReverseLabToolsMCP
+          uv run --project tools/skills/mcp/ReverseLabToolsMCP python tools/skills/mcp/ReverseLabToolsMCP/reverse_lab_tools_mcp.py --help
+          uv run --project tools/skills/mcp/ReverseLabToolsMCP python scripts/misc/mcp_smoke_check.py ${{ inputs.write_report && '--write-report' || '' }}
+
+      - name: Task - toolcheck
+        if: inputs.task == 'toolcheck' || inputs.task == 'full'
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/ai_toolcheck.py --board ${{ inputs.board }}
+
+      - name: Task - kb-audit
+        if: inputs.task == 'kb-audit' || inputs.task == 'full' || inputs.task == 'release-check'
+        working-directory: ${{ env.LAB_DIR }}
+        run: |
+          python scripts/misc/kb_doc_audit.py
+          python scripts/misc/add_frontmatter.py --verify
+          python scripts/misc/seo_audit.py
+
+      - name: Task - tests
+        if: inputs.task == 'tests' || inputs.task == 'full' || inputs.task == 'release-check'
+        working-directory: ${{ env.LAB_DIR }}
+        run: python -m pytest -q
+
+      - name: Task - release-check
+        if: inputs.task == 'release-check' || inputs.task == 'full'
+        working-directory: ${{ env.LAB_DIR }}
+        run: python scripts/misc/public_release_check.py
+
+      - name: Task - site-build
+        if: inputs.task == 'site-build' || inputs.task == 'full'
+        working-directory: ${{ env.LAB_DIR }}/site
+        run: |
+          npm ci
+          npm run build
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compute-reports-${{ inputs.task }}
+          path: |
+            ${{ env.LAB_DIR }}/reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Compute run"
+            echo ""
+            echo "| field | value |"
+            echo "| --- | --- |"
+            echo "| task | \`${{ inputs.task }}\` |"
+            echo "| board | \`${{ inputs.board }}\` |"
+            echo "| runner | \`${{ inputs.runner }}\` |"
+            echo "| ref | \`${{ github.ref }}\` |"
+            echo "| commit | \`${{ github.sha }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

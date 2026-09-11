@@ -1,0 +1,9 @@
+# Default owner for everything in this repo
+*                                   @jerryboganda
+
+# Control plane: workflows and compute policy require explicit review
+/.github/                           @jerryboganda
+/.github/workflows/                 @jerryboganda
+/.github/COMPUTE_POLICY.md          @jerryboganda
+/scripts/                           @jerryboganda
+/config/                            @jerryboganda

@@ -1,0 +1,3 @@
+[submodule "open-reverselab"]
+	path = open-reverselab
+	url = https://github.com/LING71671/open-reverselab.git
